@@ -1,0 +1,16 @@
+#!/usr/bin/env python
+
+Import("env")
+Import("env_modules")
+
+env_kinematic = env_modules.Clone()
+
+bullet_thirdparty_dir = "#thirdparty/bullet/"
+
+if not env.msvc:
+    env_kinematic.Append(CPPFLAGS=["-isystem", Dir(bullet_thirdparty_dir).path])
+else:
+    env_kinematic.Prepend(CPPPATH=[bullet_thirdparty_dir])
+
+# Module source files
+env_kinematic.add_source_files(env.modules_sources, "*.cpp")
