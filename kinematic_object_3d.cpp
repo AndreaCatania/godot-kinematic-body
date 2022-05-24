@@ -1,20 +1,20 @@
 
 #include "kinematic_object_3d.h"
 
-#include "core/templates/local_vector.h"
+#include "core/engine.h"
+#include "core/local_vector.h"
 #include "modules/bullet/bullet_physics_server.h"
 #include "modules/bullet/bullet_types_converter.h"
 #include "modules/bullet/godot_result_callbacks.h"
 #include "modules/bullet/shape_bullet.h"
-#include "scene/3d/collision_shape_3d.h"
-#include "scene/3d/mesh_instance_3d.h"
-#include "scene/resources/box_shape_3d.h"
-#include "scene/resources/capsule_shape_3d.h"
-#include "scene/resources/cylinder_shape_3d.h"
-#include "scene/resources/ray_shape_3d.h"
-#include "scene/resources/sphere_shape_3d.h"
-#include "servers/physics_server_3d.h"
-#include "utilities.h"
+#include "scene/3d/collision_shape.h"
+#include "scene/3d/mesh_instance.h"
+#include "scene/resources/box_shape.h"
+#include "scene/resources/capsule_shape.h"
+#include "scene/resources/cylinder_shape.h"
+#include "scene/resources/ray_shape.h"
+#include "scene/resources/sphere_shape.h"
+#include "servers/physics_server.h"
 
 #ifdef TOOLS_ENABLED
 #include "plugins.h"
@@ -22,20 +22,17 @@
 static bool gizmo_registered = false;
 #endif
 
-
-
-
 KinematicObject3D::KinematicObject3D() :
-		Node3D() {
+		Spatial() {
 	// Make sure BulletPhysics engine is used.
-	BulletPhysicsServer3D *singleton = dynamic_cast<BulletPhysicsServer3D *>(PhysicsServer3D::get_singleton());
+	BulletPhysicsServer *singleton = dynamic_cast<BulletPhysicsServer *>(PhysicsServer::get_singleton());
 	CRASH_COND_MSG(singleton == nullptr, "The KinematicObjct3D can work only using BulletPhysicsEngine.");
 
 #ifdef TOOLS_ENABLED
 	// Register the gizmo plugin.
 	if (gizmo_registered == false) {
-		if (Node3DEditor::get_singleton() != nullptr) {
-			Node3DEditor::get_singleton()->add_gizmo_plugin(Ref<KinematicObject3DGizmoPlugin>(memnew(KinematicObject3DGizmoPlugin)));
+		if (SpatialEditor::get_singleton() != nullptr) {
+			SpatialEditor::get_singleton()->add_gizmo_plugin(Ref<KinematicObject3DGizmoPlugin>(memnew(KinematicObject3DGizmoPlugin)));
 			gizmo_registered = true;
 		}
 	}
@@ -43,7 +40,7 @@ KinematicObject3D::KinematicObject3D() :
 }
 
 KinematicObject3D::~KinematicObject3D() {
-	set_shape(Ref<Shape3D>()); // Make sure to destroy any internal shape.
+	set_shape(Ref<Shape>()); // Make sure to destroy any internal shape.
 	set_in_world(false);
 }
 
@@ -60,8 +57,8 @@ void KinematicObject3D::set_entity_id(uint32_t p_entity_id) {
 	}
 }
 
-void KinematicObject3D::set_shape(const Ref<Shape3D> &p_shape) {
-	BulletPhysicsServer3D *singleton = static_cast<BulletPhysicsServer3D *>(PhysicsServer3D::get_singleton());
+void KinematicObject3D::set_shape(const Ref<Shape> &p_shape) {
+	BulletPhysicsServer *singleton = static_cast<BulletPhysicsServer *>(PhysicsServer::get_singleton());
 
 	if (!shape.is_null()) {
 		ShapeBullet *internal_shape = singleton->get_shape_owner()->getornull(shape->get_rid());
@@ -74,14 +71,14 @@ void KinematicObject3D::set_shape(const Ref<Shape3D> &p_shape) {
 		on_shape_remove(internal_shape);
 
 		shape->unregister_owner(this);
-		shape->disconnect("changed", callable_mp(this, &KinematicObject3D::_shape_changed));
+		shape->disconnect("changed", this, "_shape_changed");
 	}
 
 	shape = p_shape;
 
 	if (!shape.is_null()) {
 		shape->register_owner(this);
-		shape->connect("changed", callable_mp(this, &KinematicObject3D::_shape_changed));
+		shape->connect("changed", this, "_shape_changed");
 
 		ShapeBullet *internal_shape = singleton->get_shape_owner()->getornull(shape->get_rid());
 		ERR_FAIL_COND(internal_shape == nullptr);
@@ -111,32 +108,34 @@ void KinematicObject3D::set_shape(const Ref<Shape3D> &p_shape) {
 	update_configuration_warning();
 }
 
-Ref<Shape3D> KinematicObject3D::get_shape() const {
+Ref<Shape> KinematicObject3D::get_shape() const {
 	return shape;
 }
 
 void KinematicObject3D::set_in_world(bool p_in_world) {
 	in_world = p_in_world;
 	if (in_world) {
-		if (physics_rid.is_null()) {
-			physics_rid = PhysicsServer3D::get_singleton()->body_create(PhysicsServer3D::BODY_MODE_KINEMATIC, true);
-			PhysicsServer3D::get_singleton()->body_attach_object_instance_id(physics_rid, get_instance_id());
-			if (get_world_3d().is_valid()) {
-				RID space = get_world_3d()->get_space();
-				PhysicsServer3D::get_singleton()->body_set_space(physics_rid, space);
+		if (!physics_rid.is_valid()) {
+			physics_rid = PhysicsServer::get_singleton()->body_create(PhysicsServer::BODY_MODE_KINEMATIC, true);
+			PhysicsServer::get_singleton()->body_attach_object_instance_id(physics_rid, get_instance_id());
+			if (get_world().is_valid()) {
+				RID space = get_world()->get_space();
+				PhysicsServer::get_singleton()->body_set_space(physics_rid, space);
 			}
 		}
-		BulletPhysicsServer3D *singleton = static_cast<BulletPhysicsServer3D *>(PhysicsServer3D::get_singleton());
+		BulletPhysicsServer *singleton = static_cast<BulletPhysicsServer *>(PhysicsServer::get_singleton());
 		collision_object = singleton->get_collision_object(physics_rid)->get_bt_collision_object();
 		update_physics_body_shape();
 		set_entity_id(entity_id);
 	} else {
 		if (physics_rid.is_valid()) {
-			PhysicsServer3D::get_singleton()->free(physics_rid);
+			PhysicsServer::get_singleton()->free(physics_rid);
 		}
 		physics_rid = RID();
 		collision_object = nullptr;
 	}
+
+	//set_notify_transform(in_world);
 }
 
 bool KinematicObject3D::get_in_world() const {
@@ -173,8 +172,8 @@ bool KinematicObject3D::get_collision_mask_bit(int p_bit) const {
 	return get_collision_mask() & (1 << p_bit);
 }
 
-KinematicConvexQResult KinematicObject3D::test_motion(const btConvexShape *p_shape, const btVector3 &p_position, const btVector3 &p_motion, real_t p_margin, bool p_skip_if_moving_away) const {
-	KinematicConvexQResult result(
+BtKinematicConvexQResult KinematicObject3D::test_motion(const btConvexShape *p_shape, const btVector3 &p_position, const btVector3 &p_motion, real_t p_margin, bool p_skip_if_moving_away) const {
+	BtKinematicConvexQResult result(
 			collision_object,
 			p_motion.isZero() ? btVector3(0.0, 0.0, 0.0) : p_motion.normalized(),
 			p_skip_if_moving_away);
@@ -184,7 +183,7 @@ KinematicConvexQResult KinematicObject3D::test_motion(const btConvexShape *p_sha
 	result.m_collisionFilterGroup = 0;
 	result.m_collisionFilterMask = collision_mask;
 
-	space->get_dynamic_world()->convexSweepTest(
+	space->dynamicsWorld->convexSweepTest(
 			p_shape,
 			btTransform(btMatrix3x3::getIdentity(), p_position),
 			btTransform(btMatrix3x3::getIdentity(), p_position + p_motion),
@@ -194,16 +193,16 @@ KinematicConvexQResult KinematicObject3D::test_motion(const btConvexShape *p_sha
 	return result;
 }
 
-KinematicConvexQResult KinematicObject3D::test_motion_target(const btConvexShape *p_shape, const btVector3 &p_position, const btVector3 &p_target, real_t p_margin, bool p_skip_if_moving_away) const {
+BtKinematicConvexQResult KinematicObject3D::test_motion_target(const btConvexShape *p_shape, const btVector3 &p_position, const btVector3 &p_target, real_t p_margin, bool p_skip_if_moving_away) const {
 	return test_motion(p_shape, p_position, p_target - p_position, p_margin, p_skip_if_moving_away);
 }
 
-KinematicContactQResult KinematicObject3D::test_contact(btConvexShape *p_shape, const btVector3 &p_position, real_t p_margin, bool p_smooth_results) const {
+BtKinematicContactQResult KinematicObject3D::test_contact(btConvexShape *p_shape, const btVector3 &p_position, real_t p_margin, bool p_smooth_results) const {
 	// Note: I'm not using the collision_object because I don't want to change
 	// the main object transform. If turns out that this query is slow, we must
 	// reconsider this.
 	btCollisionObject query_collision_object;
-	KinematicContactQResult result(collision_object, &query_collision_object);
+	BtKinematicContactQResult result(collision_object, &query_collision_object);
 	result.smooth_results = p_smooth_results;
 
 	ERR_FAIL_COND_V(p_shape == nullptr, result);
@@ -215,20 +214,20 @@ KinematicContactQResult KinematicObject3D::test_contact(btConvexShape *p_shape, 
 	result.m_collisionFilterMask = collision_mask;
 	result.m_closestDistanceThreshold = p_margin;
 
-	space->get_dynamic_world()->contactTest(
+	space->dynamicsWorld->contactTest(
 			&query_collision_object,
 			result);
 
 	return result;
 }
 
-KinematicRayQResult KinematicObject3D::test_ray(const btVector3 &p_from, const btVector3 &p_to) const {
-	KinematicRayQResult result(collision_object, p_from, p_to);
+BtKinematicRayQResult KinematicObject3D::test_ray(const btVector3 &p_from, const btVector3 &p_to) const {
+	BtKinematicRayQResult result(collision_object, p_from, p_to);
 
 	result.m_collisionFilterGroup = 0;
 	result.m_collisionFilterMask = collision_mask;
 
-	space->get_dynamic_world()->rayTest(p_from, p_to, result);
+	space->dynamicsWorld->rayTest(p_from, p_to, result);
 	return result;
 }
 
@@ -274,10 +273,14 @@ void KinematicObject3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_collision_layer_bit", "bit", "value"), &KinematicObject3D::set_collision_layer_bit);
 	ClassDB::bind_method(D_METHOD("get_collision_layer_bit", "bit"), &KinematicObject3D::get_collision_layer_bit);
 
+	ClassDB::bind_method(D_METHOD("update_physics_body_transform"), &KinematicObject3D::update_physics_body_transform);
+
 	ClassDB::bind_method(D_METHOD("_update_debug_shape"), &KinematicObject3D::_update_debug_shape);
 	ClassDB::bind_method(D_METHOD("resource_changed", "resource"), &KinematicObject3D::resource_changed);
 
-	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "shape", PROPERTY_HINT_RESOURCE_TYPE, "Shape3D"), "set_shape", "get_shape");
+	ClassDB::bind_method(D_METHOD("_shape_changed"), &KinematicObject3D::_shape_changed);
+
+	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "shape", PROPERTY_HINT_RESOURCE_TYPE, "Shape"), "set_shape", "get_shape");
 
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "in_world"), "set_in_world", "get_in_world");
 
@@ -293,34 +296,39 @@ void KinematicObject3D::_notification(int p_what) {
 			if (Engine::get_singleton()->is_editor_hint()) {
 				// Editor only
 			} else {
-				ERR_FAIL_COND(get_world_3d().is_null());
-				ERR_FAIL_COND(get_world_3d()->get_space().is_null());
+				ERR_FAIL_COND(get_world().is_null());
+				ERR_FAIL_COND(get_world()->get_space().is_valid() == false);
 
-				BulletPhysicsServer3D *singleton = static_cast<BulletPhysicsServer3D *>(PhysicsServer3D::get_singleton());
+				BulletPhysicsServer *singleton = static_cast<BulletPhysicsServer *>(PhysicsServer::get_singleton());
 				ERR_FAIL_COND(singleton == nullptr);
 
-				space = singleton->get_space_owner()->getornull(get_world_3d()->get_space());
+				space = singleton->get_space_owner()->getornull(get_world()->get_space());
 				ERR_FAIL_COND(space == nullptr);
 
 				if (physics_rid.is_valid()) {
-					singleton->body_set_space(physics_rid, get_world_3d()->get_space());
+					singleton->body_set_space(physics_rid, get_world()->get_space());
 				}
 			}
 #ifdef TOOLS_ENABLED
 			_update_debug_shape();
 #endif
 		} break;
+			//case NOTIFICATION_TRANSFORM_CHANGED: {
+			//	if (in_world) {
+			//		update_physics_body_transform();
+			//	}
+			//} break;
 	}
 }
 
 String KinematicObject3D::get_configuration_warning() const {
 	if (shape.is_null()) {
 		return TTR("Please add a shape.");
-	} else if (Object::cast_to<SphereShape3D>(*shape) == nullptr &&
-			   Object::cast_to<BoxShape3D>(*shape) == nullptr &&
-			   Object::cast_to<CapsuleShape3D>(*shape) == nullptr &&
-			   Object::cast_to<CylinderShape3D>(*shape) == nullptr &&
-			   Object::cast_to<RayShape3D>(*shape) == nullptr) {
+	} else if (Object::cast_to<SphereShape>(*shape) == nullptr &&
+			Object::cast_to<BoxShape>(*shape) == nullptr &&
+			Object::cast_to<CapsuleShape>(*shape) == nullptr &&
+			Object::cast_to<CylinderShape>(*shape) == nullptr &&
+			Object::cast_to<RayShape>(*shape) == nullptr) {
 		return TTR("The set shape is not supported.");
 	}
 
@@ -328,28 +336,28 @@ String KinematicObject3D::get_configuration_warning() const {
 }
 
 void KinematicObject3D::update_physics_body_shape() {
-	if (physics_rid.is_null()) {
+	if (!physics_rid.is_valid()) {
 		return;
 	}
 
 	if (shape.is_null()) {
-		PhysicsServer3D::get_singleton()->body_set_shape(physics_rid, 0, RID());
+		PhysicsServer::get_singleton()->body_set_shape(physics_rid, 0, RID());
 	} else {
-		if (PhysicsServer3D::get_singleton()->body_get_shape_count(physics_rid) == 0) {
-			PhysicsServer3D::get_singleton()->body_add_shape(physics_rid, shape->get_rid(), Transform(), false);
+		if (PhysicsServer::get_singleton()->body_get_shape_count(physics_rid) == 0) {
+			PhysicsServer::get_singleton()->body_add_shape(physics_rid, shape->get_rid(), Transform(), false);
 		} else {
-			PhysicsServer3D::get_singleton()->body_set_shape(physics_rid, 0, shape->get_rid());
+			PhysicsServer::get_singleton()->body_set_shape(physics_rid, 0, shape->get_rid());
 		}
 	}
 }
 
 void KinematicObject3D::update_physics_body_transform() {
-	if (physics_rid.is_null()) {
+	if (!physics_rid.is_valid()) {
 		return;
 	}
-	PhysicsServer3D::get_singleton()->body_set_state(
+	PhysicsServer::get_singleton()->body_set_state(
 			physics_rid,
-			PhysicsServer3D::BODY_STATE_TRANSFORM,
+			PhysicsServer::BODY_STATE_TRANSFORM,
 			get_global_transform());
 }
 
@@ -380,13 +388,13 @@ void KinematicObject3D::_update_debug_shape() {
 		debug_shape = nullptr;
 	}
 
-	Ref<Shape3D> s = get_shape();
+	Ref<Shape> s = get_shape();
 	if (s.is_null()) {
 		return;
 	}
 
 	Ref<Mesh> mesh = s->get_debug_mesh();
-	MeshInstance3D *mi = memnew(MeshInstance3D);
+	MeshInstance *mi = memnew(MeshInstance);
 	mi->set_mesh(mesh);
 	add_child(mi);
 	debug_shape = mi;

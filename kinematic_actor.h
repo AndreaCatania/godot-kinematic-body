@@ -7,8 +7,6 @@
 // Margin used to unstuck the body.
 #define MARGIN 0.01 // TODO Too big, was 0.005. consider use 0.05
 
-#include "scene/3d/node_3d.h"
-
 #include "kinematic_object_3d.h"
 
 /// The KinematicActor is the node that provide access to some low level queries
@@ -22,7 +20,7 @@ public:
 	struct ShapeHolder {
 		class btConvexShape *shape = nullptr;
 		class btConvexShape *margin_shape = nullptr;
-		Ref<Shape3D> godot_shape;
+		Ref<Shape> godot_shape;
 	};
 
 	struct StrafingResult {

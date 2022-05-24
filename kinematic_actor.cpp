@@ -28,7 +28,7 @@ KinematicActor::StrafingResult KinematicActor::move(
 	// This function is not supposed to be called with null shpae.
 	CRASH_COND(p_motion_shape.shape == nullptr);
 	CRASH_COND(p_motion_shape.margin_shape == nullptr);
-	CRASH_COND(p_motion_shape.godot_shape.is_null());
+	CRASH_COND(!p_motion_shape.godot_shape.is_valid());
 #endif
 
 	const btVector3 up_dir = p_reference * btVector3(0.0, 1.0, 0.0);
@@ -38,7 +38,15 @@ KinematicActor::StrafingResult KinematicActor::move(
 	real_t remaining_strafing = motion_length;
 	btVector3 strafing_dir(0, 0, 0);
 	if (motion_length >= CMP_EPSILON) {
-		const real_t radius = p_motion_shape.godot_shape->get_enclosing_radius() + MARGIN;
+		ERR_PRINT_ONCE("TODO Please add enclosing radius");
+		ERR_PRINT_ONCE("TODO Please add enclosing radius");
+		ERR_PRINT_ONCE("TODO Please add enclosing radius");
+		ERR_PRINT_ONCE("TODO Please add enclosing radius");
+		ERR_PRINT_ONCE("TODO Please add enclosing radius");
+		ERR_PRINT_ONCE("TODO Please add enclosing radius");
+		ERR_PRINT_ONCE("TODO Please add enclosing radius");
+		//const real_t radius = p_motion_shape.godot_shape->get_enclosing_radius() + MARGIN;
+		const real_t radius = 2.0 + MARGIN;
 		strafing_dir = p_motion / motion_length;
 
 		// Unstuck to start from a valid position.
@@ -49,7 +57,7 @@ KinematicActor::StrafingResult KinematicActor::move(
 		// Phase 1: Unstuck motion
 		{
 			// Then move along the unstuck_dir, and if there is a collision put the body in between.
-			const KinematicConvexQResult result = test_motion(p_motion_shape.shape, r_position, unstuck_motion, 0.0, true);
+			const BtKinematicConvexQResult result = test_motion(p_motion_shape.shape, r_position, unstuck_motion, 0.0, true);
 			if (result.hasHit() == false) {
 				// Only if no hit.
 				r_position += unstuck_motion;
@@ -82,7 +90,7 @@ KinematicActor::StrafingResult KinematicActor::move(
 			for (int test_n = 0; test_n < MAX_STRAFING_TESTS && remaining_strafing >= CMP_EPSILON; test_n += 1) {
 				// Target location from the initial position.
 				// Test the motion from the actual up moved position to the target position.
-				const KinematicConvexQResult result = test_motion_target(
+				const BtKinematicConvexQResult result = test_motion_target(
 						p_motion_shape.shape,
 						cast_position,
 						target_position,
@@ -114,7 +122,7 @@ KinematicActor::StrafingResult KinematicActor::move(
 						// Adjust the strafing_motion and try again:
 						// Spread the strafing along the perpendicular of the normal.
 						const btVector3 nxt_strafing_motion = (strafing_done / strafing_done_length) * remaining_strafing;
-						const btVector3 perp = vec_project_perpendicular(nxt_strafing_motion, result.m_hitNormalWorld);
+						const btVector3 perp = vec_project_perpendicular(nxt_strafing_motion, result.hit_normal);
 						const real_t perp_mag = perp.length();
 
 						r_position = hit;
@@ -168,17 +176,17 @@ KinematicActor::StrafingResult KinematicActor::move(
 						special_manouvre2 = true;
 						test_n -= 1;
 
-						const KinematicRayQResult ray_1_result = test_ray(
+						const BtKinematicRayQResult ray_1_result = test_ray(
 								r_position,
 								r_position + (up_dir * -(p_step_height * 4.0 + radius)));
 
-						const KinematicRayQResult ray_2_result = test_ray(
+						const BtKinematicRayQResult ray_2_result = test_ray(
 								target_position,
 								target_position + (up_dir * -(p_step_height * 4.0 + radius)));
 
 						if (ray_1_result.hasHit() && ray_2_result.hasHit()) {
 							btVector3 new_dir = ray_2_result.m_hitPointWorld -
-												ray_1_result.m_hitPointWorld;
+									ray_1_result.m_hitPointWorld;
 							if (likely(new_dir.length2() > CMP_EPSILON)) {
 								new_dir.normalize();
 								if (new_dir.dot(up_dir) < -HALF_DEG_TOLERANCE) {
@@ -206,7 +214,7 @@ KinematicActor::StrafingResult KinematicActor::move(
 			// contact.
 			// This step down make sure that this doesn't happen.
 			const btVector3 vertical_motion = up_dir * -p_step_height * 2.0;
-			const KinematicConvexQResult result = test_motion(p_motion_shape.shape, r_position, vertical_motion, 0.0, true);
+			const BtKinematicConvexQResult result = test_motion(p_motion_shape.shape, r_position, vertical_motion, 0.0, true);
 			if (result.hasHit()) {
 				r_position += vertical_motion * result.m_closestHitFraction;
 			}
@@ -242,7 +250,7 @@ btVector3 KinematicActor::unstuck(
 	const btVector3 initial = r_position;
 
 	for (int x = 0; x < UNSTUCK_TESTS; x += 1) {
-		const KinematicContactQResult result = test_contact(p_shape.margin_shape, r_position, p_margin, true);
+		const BtKinematicContactQResult result = test_contact(p_shape.margin_shape, r_position, p_margin, true);
 
 		btVector3 norm(0.0, 0.0, 0.0);
 		real_t depth = 0.0;
@@ -258,14 +266,14 @@ btVector3 KinematicActor::unstuck(
 				continue;
 			}
 
-			const real_t dot = result.results[i].normal.dot(p_up_dir);
+			const real_t dot = result.results[i].hit_normal.dot(p_up_dir);
 			if (dot >= HALF_DEG_TOLERANCE * 4.0) {
 				// Any bottom collision produces a depenetration toward up.
 				// This allows to no slide downhil.
 				norm += p_up_dir;
 			} else {
 				// All others, produces depenetration toward the normal.
-				norm += result.results[i].normal;
+				norm += result.results[i].hit_normal;
 			}
 		}
 
@@ -281,7 +289,7 @@ btVector3 KinematicActor::unstuck(
 				continue;
 			}
 
-			const real_t equality = norm.dot(result.results[i].normal);
+			const real_t equality = norm.dot(result.results[i].hit_normal);
 			const real_t new_depth = ((-result.results[i].distance) * equality) * UNSTUCK_FACTOR;
 			if (new_depth > depth) {
 				depth = new_depth;
@@ -305,4 +313,3 @@ btVector3 KinematicActor::unstuck(
 		return btVector3(0.0, 0.0, 0.0);
 	}
 }
-
